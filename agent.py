@@ -1,0 +1,71 @@
+"""LangGraph ReAct agent: LLM via the Agent Manager LLM proxy, tools via the
+Agent Manager MCP proxy (upstream: insurance MCP server on WSO2 Devant)."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.prebuilt import create_react_agent
+
+from config import Config
+
+log = logging.getLogger("insurance-agent")
+
+SYSTEM_PROMPT = (
+    "You are the HealthGuard insurance assistant. You help policyholders and "
+    "insurer staff with health insurance policies and claims.\n\n"
+    "Use the available tools for every factual answer — never invent policy "
+    "numbers, amounts, dates or claim statuses. Policyholders are identified by "
+    "their email address (the tools call it 'username'); ask for it if you do "
+    "not have it.\n"
+    "Before submitting a claim, confirm claim type, amount and description with "
+    "the user. Valid claim types: Outpatient, Hospitalization, Emergency, "
+    "Pharmacy, DME, Medical.\n"
+    "Only change a policy or claim status when the user explicitly asks for it, "
+    "and state the exact change you made.\n"
+    "If no tools are available, say the insurance system is unreachable rather "
+    "than guessing."
+)
+
+
+async def load_mcp_tools(cfg: Config) -> list[Any]:
+    """Discover tools from the MCP proxy. The agent only holds the proxy key;
+    the gateway attaches the Devant api-key on the way upstream."""
+    if not cfg.mcp_url:
+        log.warning("INSURANCE_MCP_URL not set; starting without MCP tools")
+        return []
+
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+
+    connection: dict[str, Any] = {"url": cfg.mcp_url, "transport": "streamable_http"}
+    if cfg.mcp_api_key:
+        connection["headers"] = {cfg.mcp_api_key_header: cfg.mcp_api_key}
+    client = MultiServerMCPClient({"insurance": connection})
+    return list(await client.get_tools())
+
+
+def build_llm(cfg: Config) -> ChatOpenAI:
+    if cfg.use_llm_provider:
+        # The AMP LLM proxy authenticates with the "API-Key" header; blank out
+        # Authorization so the SDK's dummy bearer token is never forwarded.
+        return ChatOpenAI(
+            model=cfg.model,
+            temperature=0,
+            base_url=cfg.llm_provider_url,
+            api_key="not-used",
+            default_headers={"API-Key": cfg.llm_provider_key, "Authorization": ""},
+        )
+    return ChatOpenAI(model=cfg.model, temperature=0, api_key=cfg.openai_api_key)
+
+
+def build_agent(cfg: Config, tools: list[Any]) -> Any:
+    # Conversation memory keyed on the chat session_id (thread_id).
+    return create_react_agent(
+        model=build_llm(cfg),
+        tools=tools,
+        prompt=SYSTEM_PROMPT,
+        checkpointer=InMemorySaver(),
+    )
