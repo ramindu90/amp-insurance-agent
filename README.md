@@ -20,7 +20,8 @@ Agent Manager (AMP), that:
                                              (/mcp on :8084, 7 tools)
 ```
 
-The MCP server is the same code as `../mock_insurance_backend`'s `mcp_server.bal`,
+The MCP server is the same code as the k8s demo's
+`k8-artefacts-apim-bi-elk/use_cases/insurance/mock_insurance_backend/mcp_server.bal`,
 copied into its own Devant integration
 `/Users/ramindu/WSO2Integrator/ipaas/insurancemcp` (REST APIs: `../insuranceservice`).
 
@@ -116,16 +117,15 @@ match your Devant org handle.
 
 ### Part D — Agent Manager: deploy this Python agent
 
-Prerequisite: this folder must be in a GitHub repo AMP can read — e.g. commit
-and push it to `WSO2SADemo/wso2_platform_k8` (private repo → add a **Git
-Secret** with a GitHub PAT in step 3).
+Prerequisite: this repo is pushed to `https://github.com/ramindu90/amp-insurance-agent`
+(if the repo is private, add a **Git Secret** with a GitHub PAT in step 3).
 
 1. **Projects** → open/create a project (e.g. `insurance`).
 2. **Add Agent** → **Platform-Hosted Agent** → **Source Code**.
 3. Fill in:
    - Name `insurance-python-agent`
-   - GitHub Repository `https://github.com/WSO2SADemo/wso2_platform_k8`, Branch = the branch you pushed
-   - Project Path `use_cases/insurance/amp_insurance_python_agent`
+   - GitHub Repository `https://github.com/ramindu90/amp-insurance-agent`, Branch `main`
+   - Project Path `/`
    - Build: **Python**, Language Version `3.12`, Start Command `python main.py`
    - **Enable auto instrumentation**: on (traces in the Traces tab)
    - Agent type **Chat Agent** (`/chat` on port 8000)
