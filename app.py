@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from typing import Any
 
@@ -63,6 +64,15 @@ class ChatResponse(BaseModel):
 app = FastAPI(title="Insurance Agent (Agent Manager)", version="0.1.0")
 
 
+def _injected_env_names() -> list[str]:
+    """Names (never values) of URL/key env vars present in the pod, to show
+    what Agent Manager actually injected when the expected names are missing."""
+    return sorted(
+        n for n in os.environ
+        if n.endswith(("_URL", "_KEY", "_API_KEY")) and not n.startswith("AMP_")
+    )
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {
@@ -74,6 +84,7 @@ async def health() -> dict[str, Any]:
         ),
         "mcp_configured": bool(CONFIG.mcp_url),
         "mcp_tools": _tool_names,
+        "url_key_env_vars": _injected_env_names(),
     }
 
 
@@ -84,7 +95,8 @@ async def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(
             status_code=503,
             detail="No LLM configured: attach an LLM Configuration in Agent Manager "
-            "(env LLM_PROVIDER_URL/LLM_PROVIDER_KEY) or set OPENAI_API_KEY",
+            "and name its env vars LLM_PROVIDER_URL/LLM_PROVIDER_KEY, then redeploy. "
+            f"URL/key env vars present in this pod: {_injected_env_names() or 'none'}",
         )
     agent = await get_agent()
     try:
