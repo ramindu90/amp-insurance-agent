@@ -26,18 +26,29 @@ CONFIG = Config.from_env()
 # attached Tool Configuration never crash-loops the pod.
 _agent: Any = None
 _tool_names: list[str] = []
+_mcp_error: str = ""
 _lock = asyncio.Lock()
 
 
+def _root_cause(exc: BaseException) -> str:
+    """MCP client errors arrive wrapped in anyio ExceptionGroups; surface the
+    innermost one (e.g. the HTTP 401/404 from the gateway)."""
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return f"{type(exc).__name__}: {exc}"
+
+
 async def get_agent() -> Any:
-    global _agent, _tool_names
+    global _agent, _tool_names, _mcp_error
     async with _lock:
         if _agent is not None and (_tool_names or not CONFIG.mcp_url):
             return _agent
+        _mcp_error = ""
         try:
             tools = await load_mcp_tools(CONFIG)
-        except Exception:  # noqa: BLE001
-            log.exception("MCP tool discovery failed; continuing without tools")
+        except Exception as exc:  # noqa: BLE001
+            _mcp_error = _root_cause(exc)
+            log.exception("MCP tool discovery failed (%s): %s", CONFIG.mcp_url, _mcp_error)
             tools = []
         _tool_names = [t.name for t in tools]
         _agent = build_agent(CONFIG, tools)
@@ -82,8 +93,10 @@ async def health() -> dict[str, Any]:
             "agent-manager-proxy" if CONFIG.use_llm_provider
             else "openai-direct" if CONFIG.openai_api_key else "not-configured"
         ),
-        "mcp_configured": bool(CONFIG.mcp_url),
+        "mcp_url": CONFIG.mcp_url,
+        "mcp_key_header": CONFIG.mcp_api_key_header if CONFIG.mcp_api_key else None,
         "mcp_tools": _tool_names,
+        "mcp_error": _mcp_error,
         "url_key_env_vars": _injected_env_names(),
     }
 
