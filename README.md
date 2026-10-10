@@ -36,11 +36,19 @@ copied into its own Devant integration
 
 | Env var | Set by | Meaning |
 |---|---|---|
-| `LLM_PROVIDER_URL` / `LLM_PROVIDER_KEY` | AMP (LLM Configuration — rename to these names) | LLM proxy base URL / key |
-| `INSURANCE_MCP_URL` / `INSURANCE_MCP_API_KEY` | AMP (Tool Configuration — rename to these names) | MCP proxy URL / key |
+| `LLM_PROVIDER_URL` / `LLM_PROVIDER_KEY` | optional explicit names; otherwise auto-discovered (below) | LLM proxy base URL / key |
+| `INSURANCE_MCP_URL` / `INSURANCE_MCP_API_KEY` | optional explicit names; otherwise auto-discovered (below) | MCP proxy URL / key |
 | `INSURANCE_MCP_API_KEY_HEADER` | you (optional) | default `X-API-Key` (AMP MCP proxy default). Change only if you changed the proxy's Security header |
 | `OPENAI_MODEL` | you (optional) | default `gpt-4o-mini` |
 | `OPENAI_API_KEY` | local runs only | direct OpenAI fallback when `LLM_PROVIDER_*` are unset |
+
+**No variable renaming needed.** Agent Manager injects every attached LLM
+provider / MCP server as `<PREFIX>_URL` + `<PREFIX>_API_KEY`, and the prefix
+depends on where you attached it — create form: `<AGENT_NAME>_1_URL` (LLM),
+`<AGENT_NAME>_MCP_1_URL` (MCP); Configure page: `<CONFIG_NAME>_URL`. The agent
+discovers them: a `*_URL` ending in `/mcp` is the MCP proxy (API key optional —
+absent when the proxy is unsecured), any other `*_URL` with a sibling
+`*_API_KEY` is the LLM proxy. The explicit names above override discovery.
 
 The pod starts even with nothing configured (`/health` shows `"llm":"not-configured"`,
 `/chat` returns 503) so the first deploy doesn't crash-loop before you attach
@@ -136,14 +144,15 @@ Prerequisite: this repo is pushed to `https://github.com/ramindu90/amp-insurance
 
 ### Part E — Attach the LLM and the MCP proxy to the agent
 
+Easiest: pick both on the **create form** (LLM provider + MCP Proxies
+sections) in Part D — they're injected into the first deployment and the
+default variable names work as-is. To add them later instead:
+
 1. Agent → **Configure** → **LLM Configurations** → **+ Add LLM Configuration** →
-   **Select a Service Provider** → `insurance-openai` → **Save**.
-   In the *Environment Variables & Integration Guide* panel rename the
-   variables to **`LLM_PROVIDER_URL`** and **`LLM_PROVIDER_KEY`** (defaults are
-   `<CONFIG>_URL` / `<CONFIG>_API_KEY`).
+   **Select a Service Provider** → `insurance-openai` → **Save** (keep the
+   default variable names).
 2. **Configure** → **Tool Configurations** → **Add Tool Configuration** →
-   `insurance-mcp` → set Environment Variable Names to
-   **`INSURANCE_MCP_URL`** and **`INSURANCE_MCP_API_KEY`** → **Save**.
+   `insurance-mcp` → **Save**.
 3. **Redeploy** the agent (Deploy page) — MCP values are injected at deploy time.
 
 ### Part F — Test
@@ -160,8 +169,8 @@ Troubleshooting:
 
 | Symptom | Cause / fix |
 |---|---|
-| `/chat` 503 "No LLM configured" | LLM Configuration not attached, or env var names not renamed to `LLM_PROVIDER_URL`/`LLM_PROVIDER_KEY` |
-| Answers "insurance system is unreachable", `mcp_tools: []` in `/health` | Tool Configuration missing/renamed wrong, or Devant cold/401 — check Runtime Logs for the discovery error |
+| `/chat` 503 "No LLM configured" | LLM Configuration not attached in this environment, or pod not redeployed since — the error lists the URL/key env var names the pod actually has |
+| Answers "insurance system is unreachable", `mcp_tools: []` in `/health` | Tool Configuration missing (no `*_URL` ending in `/mcp`), or proxy/Devant error — `mcp_error` in `/health` and Runtime Logs show it |
 | MCP 401 from AMP gateway | header mismatch: agent sends `X-API-Key`; if you changed the proxy Security header, set `INSURANCE_MCP_API_KEY_HEADER` |
 | MCP 401 from Devant (via proxy) | the `api-key` header/value in C.4 is wrong or the key was generated for another API |
 | LLM 401/403 | model not allowed in provider Access Control, or wrong header (must be `API-Key`) |

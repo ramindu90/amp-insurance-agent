@@ -1,10 +1,18 @@
 """Environment-driven configuration.
 
-On Agent Manager the LLM_* and INSURANCE_MCP_* values are injected by the
-platform (LLM Configuration / Tool Configuration on the agent's Configure
-page) — rename the console's default variable names to the ones below when
-attaching them. Locally, the same variables can point straight at OpenAI and
-at the Devant-hosted MCP endpoint (see .env.example).
+Agent Manager injects each attached LLM provider / MCP server as a pair of
+env vars, <PREFIX>_URL + <PREFIX>_API_KEY, where the prefix depends on where
+it was attached (agent-services/agent_configuration_service.go and the
+console's create form):
+  create form, LLM : <AGENT_DISPLAY_NAME>_<n>_URL / _API_KEY
+  create form, MCP : <AGENT_DISPLAY_NAME>_MCP_<n>_URL / _API_KEY
+  Configure page   : <CONFIG_OR_MAPPING_NAME>_URL / _API_KEY
+  or any name typed into the console's "variable name" fields.
+So no names are fixed. Explicit LLM_PROVIDER_* / INSURANCE_MCP_* win if set;
+otherwise the pairs are discovered: a URL ending in /mcp is the MCP proxy
+(its API key is optional — absent when the proxy has no API-key security),
+any other URL with a sibling _API_KEY is the LLM proxy. Locally, the same
+variables can point straight at OpenAI and at Devant (see .env.example).
 """
 
 from __future__ import annotations
@@ -17,14 +25,31 @@ def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
 
-def _detect_mcp_env() -> tuple[str, str]:
-    """Fallback when the Tool Configuration kept Agent Manager's default
-    variable names (<NAME>_URL / <NAME>_API_KEY): pick the *_URL whose value
-    is an MCP endpoint (ends with /mcp) and its sibling *_API_KEY."""
+def _injected_pairs() -> list[tuple[str, str, str]]:
+    """(prefix, url, api_key) for every <PREFIX>_URL in the environment."""
+    pairs = []
     for name, value in sorted(os.environ.items()):
-        if name.endswith("_URL") and value.strip().rstrip("/").endswith("/mcp"):
+        if name.endswith("_URL") and not name.startswith("AMP_") and value.strip():
             prefix = name[: -len("_URL")]
-            return value.strip(), _env(f"{prefix}_API_KEY")
+            pairs.append((prefix, value.strip(), _env(f"{prefix}_API_KEY")))
+    return pairs
+
+
+def _is_mcp_url(url: str) -> bool:
+    return url.rstrip("/").endswith("/mcp")
+
+
+def _detect_mcp_env() -> tuple[str, str]:
+    for _, url, key in _injected_pairs():
+        if _is_mcp_url(url):
+            return url, key
+    return "", ""
+
+
+def _detect_llm_env() -> tuple[str, str]:
+    for _, url, key in _injected_pairs():
+        if key and not _is_mcp_url(url):
+            return url, key
     return "", ""
 
 
@@ -57,10 +82,13 @@ class Config:
         mcp_url, mcp_api_key = _env("INSURANCE_MCP_URL"), _env("INSURANCE_MCP_API_KEY")
         if not mcp_url:
             mcp_url, mcp_api_key = _detect_mcp_env()
+        llm_url, llm_key = _env("LLM_PROVIDER_URL"), _env("LLM_PROVIDER_KEY")
+        if not (llm_url and llm_key):
+            llm_url, llm_key = _detect_llm_env()
         return cls(
             model=_env("OPENAI_MODEL", "gpt-4o-mini"),
-            llm_provider_url=_env("LLM_PROVIDER_URL"),
-            llm_provider_key=_env("LLM_PROVIDER_KEY"),
+            llm_provider_url=llm_url,
+            llm_provider_key=llm_key,
             openai_api_key=_env("OPENAI_API_KEY"),
             mcp_url=mcp_url,
             mcp_api_key=mcp_api_key,
