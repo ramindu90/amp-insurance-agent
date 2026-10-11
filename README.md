@@ -165,6 +165,26 @@ default variable names work as-is. To add them later instead:
    `insurance-mcp` → **Save**.
 3. **Redeploy** the agent (Deploy page) — MCP values are injected at deploy time.
 
+### Part E2 — (optional) AgentID / OAuth on the MCP server
+
+Per-agent tool access instead of one shared proxy key (AMP tutorial *Connect
+your agent to real tools*, Step 6). No code or env change needed — the agent
+switches to OAuth automatically when no MCP API key is injected and
+`AMP_AGENTID_*` are present (force with `MCP_AUTH=oauth`).
+
+1. Org → **Agent ID** → **Roles** → **Create Role** `insurance-tools` (no scopes
+   yet) → open it → **Agents** tab → add this agent → **Save Changes**.
+2. MCP server → **Security** → Authentication **Method: OAuth** → **Save**.
+3. Same tab → **Authorization** → **Create Scope** e.g. `insurance-read`
+   (tools `getPolicy`, `getClaims`, `listAllPolicies`, `getAllClaims`) and, if
+   wanted, `insurance-write` (`submitClaim`, `updateClaim`,
+   `updatePolicyStatus`) → **Assigned Roles**: `insurance-tools` → save.
+   **A tool with no scope the agent's role holds is rejected by the gateway**
+   even though discovery may still list it.
+4. **Redeploy** the agent so it picks up the change and mints a fresh token.
+   Runtime Logs: `Minted AgentID access token for <MCP URL>` and
+   `agent ready (… mcp_auth=oauth …)`.
+
 ### Part F — Test
 
 1. Agent → **Try It**:

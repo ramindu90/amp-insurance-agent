@@ -36,7 +36,9 @@ def _injected_pairs() -> list[tuple[str, str, str]]:
 
 
 def _is_mcp_url(url: str) -> bool:
-    return url.rstrip("/").endswith("/mcp")
+    # The console's own integration guide treats the injected URL var as a
+    # comma-separated list, so check each entry.
+    return any(u.strip().rstrip("/").endswith("/mcp") for u in url.split(",") if u.strip())
 
 
 def _detect_mcp_env() -> tuple[str, str]:
@@ -76,6 +78,10 @@ class Config:
     @property
     def use_llm_provider(self) -> bool:
         return bool(self.llm_provider_url and self.llm_provider_key)
+
+    @property
+    def mcp_urls(self) -> list[str]:
+        return [u.strip() for u in self.mcp_url.split(",") if u.strip()]
 
     @property
     def agentid_ready(self) -> bool:

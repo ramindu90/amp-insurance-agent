@@ -14,6 +14,13 @@ from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
 from agent import build_agent, load_mcp_tools
+
+# Present when Agent Manager runs the agent with auto-instrumentation; absent
+# in a plain local run (same pattern as AMP's samples/crewai-agent).
+try:
+    from traceloop.sdk import Traceloop
+except ImportError:
+    Traceloop = None
 from config import Config
 
 logging.basicConfig(level=logging.INFO)
@@ -113,6 +120,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
             "and name its env vars LLM_PROVIDER_URL/LLM_PROVIDER_KEY, then redeploy. "
             f"URL/key env vars present in this pod: {_injected_env_names() or 'none'}",
         )
+    if Traceloop is not None:
+        # Tags this request's spans with the chat session so the Traces page's
+        # Conversation column can group and filter a conversation's turns.
+        Traceloop.set_association_properties({"session_id": session_id})
     agent = await get_agent()
     try:
         result = await agent.ainvoke(

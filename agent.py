@@ -45,19 +45,25 @@ async def load_mcp_tools(cfg: Config) -> list[Any]:
 
     from langchain_mcp_adapters.client import MultiServerMCPClient
 
-    connection: dict[str, Any] = {"url": cfg.mcp_url, "transport": "streamable_http"}
-    if cfg.mcp_auth == "apikey":
-        connection["headers"] = {cfg.mcp_api_key_header: cfg.mcp_api_key}
-    elif cfg.mcp_auth == "oauth":
-        if not cfg.agentid_ready:
-            # AgentID provisioning can land after the first deploy; tool
-            # discovery is retried on the next /chat.
-            log.warning("MCP_AUTH=oauth but AMP_AGENTID_* not injected yet; no MCP tools")
-            return []
-        from agent_identity import AgentIdentityAuth
+    if cfg.mcp_auth == "oauth" and not cfg.agentid_ready:
+        # AgentID provisioning can land after the first deploy; tool
+        # discovery is retried on the next /chat.
+        log.warning("MCP_AUTH=oauth but AMP_AGENTID_* not injected yet; no MCP tools")
+        return []
 
-        connection["auth"] = AgentIdentityAuth(cfg, resource=cfg.mcp_url)
-    client = MultiServerMCPClient({"insurance": connection})
+    servers: dict[str, dict[str, Any]] = {}
+    for i, url in enumerate(cfg.mcp_urls):
+        connection: dict[str, Any] = {"url": url, "transport": "streamable_http"}
+        if cfg.mcp_auth == "apikey":
+            # Header = the MCP server's Security > API Key header (default X-API-Key).
+            connection["headers"] = {cfg.mcp_api_key_header: cfg.mcp_api_key}
+        elif cfg.mcp_auth == "oauth":
+            from agent_identity import AgentIdentityAuth
+
+            # One auth per URL: each token is minted with that URL as resource.
+            connection["auth"] = AgentIdentityAuth(cfg, resource=url)
+        servers["insurance" if i == 0 else f"insurance_{i}"] = connection
+    client = MultiServerMCPClient(servers)
     return list(await client.get_tools())
 
 
