@@ -64,11 +64,35 @@ class Config:
     mcp_url: str
     mcp_api_key: str
     mcp_api_key_header: str
+    # "apikey" | "oauth" | "none" — see mcp_auth property.
+    mcp_auth_mode: str
+    # AgentID (fixed names, injected into every platform-hosted agent).
+    agentid_client_id: str
+    agentid_client_secret: str
+    agentid_token_endpoint: str
+    agentid_scopes: str
     agent_version: str
 
     @property
     def use_llm_provider(self) -> bool:
         return bool(self.llm_provider_url and self.llm_provider_key)
+
+    @property
+    def agentid_ready(self) -> bool:
+        return bool(
+            self.agentid_client_id and self.agentid_client_secret and self.agentid_token_endpoint
+        )
+
+    @property
+    def mcp_auth(self) -> str:
+        """MCP_AUTH=apikey|oauth|none forces a mode; default "auto": an injected
+        MCP API key means the proxy uses API-key security; otherwise, if AgentID
+        credentials are present, the proxy uses OAuth (AgentID); else none."""
+        if self.mcp_auth_mode in ("apikey", "oauth", "none"):
+            return self.mcp_auth_mode
+        if self.mcp_api_key:
+            return "apikey"
+        return "oauth" if self.agentid_ready else "none"
 
     @property
     def llm_configured(self) -> bool:
@@ -95,5 +119,10 @@ class Config:
             # AMP MCP proxies default to X-API-Key (the LLM proxy uses API-Key).
             # When pointing straight at Devant locally, set this to "api-key".
             mcp_api_key_header=_env("INSURANCE_MCP_API_KEY_HEADER", "X-API-Key"),
+            mcp_auth_mode=_env("MCP_AUTH", "auto").lower(),
+            agentid_client_id=_env("AMP_AGENTID_CLIENT_ID"),
+            agentid_client_secret=_env("AMP_AGENTID_CLIENT_SECRET"),
+            agentid_token_endpoint=_env("AMP_AGENTID_TOKEN_ENDPOINT"),
+            agentid_scopes=_env("AMP_AGENTID_SCOPES"),
             agent_version=_env("AGENT_VERSION", "dev"),
         )

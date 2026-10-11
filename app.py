@@ -53,9 +53,10 @@ async def get_agent() -> Any:
         _tool_names = [t.name for t in tools]
         _agent = build_agent(CONFIG, tools)
         log.info(
-            "agent ready (llm=%s, model=%s, mcp_tools=%s)",
+            "agent ready (llm=%s, model=%s, mcp_auth=%s, mcp_tools=%s)",
             "agent-manager-proxy" if CONFIG.use_llm_provider else "openai-direct",
             CONFIG.model,
+            CONFIG.mcp_auth,
             _tool_names,
         )
         return _agent
@@ -94,7 +95,8 @@ async def health() -> dict[str, Any]:
             else "openai-direct" if CONFIG.openai_api_key else "not-configured"
         ),
         "mcp_url": CONFIG.mcp_url,
-        "mcp_key_header": CONFIG.mcp_api_key_header if CONFIG.mcp_api_key else None,
+        "mcp_auth": CONFIG.mcp_auth,
+        "mcp_key_header": CONFIG.mcp_api_key_header if CONFIG.mcp_auth == "apikey" else None,
         "mcp_tools": _tool_names,
         "mcp_error": _mcp_error,
         "url_key_env_vars": _injected_env_names(),

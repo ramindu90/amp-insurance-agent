@@ -17,6 +17,10 @@ log = logging.getLogger("insurance-agent")
 SYSTEM_PROMPT = (
     "You are the HealthGuard insurance assistant. You help policyholders and "
     "insurer staff with health insurance policies and claims.\n\n"
+    "Your tools come from the HealthGuard insurance MCP server (Model Context "
+    "Protocol), reached through WSO2 Agent Manager. If asked whether you have "
+    "MCP access, answer from the tools you actually have: list them if any are "
+    "available, otherwise say the MCP server is currently unreachable.\n"
     "Use the available tools for every factual answer — never invent policy "
     "numbers, amounts, dates or claim statuses. Policyholders are identified by "
     "their email address (the tools call it 'username'); ask for it if you do "
@@ -32,17 +36,27 @@ SYSTEM_PROMPT = (
 
 
 async def load_mcp_tools(cfg: Config) -> list[Any]:
-    """Discover tools from the MCP proxy. The agent only holds the proxy key;
-    the gateway attaches the Devant api-key on the way upstream."""
+    """Discover tools from the MCP proxy. The agent only holds proxy-level
+    credentials (an API key, or an AgentID token); any upstream credential is
+    added by the gateway."""
     if not cfg.mcp_url:
-        log.warning("INSURANCE_MCP_URL not set; starting without MCP tools")
+        log.warning("No MCP URL injected; starting without MCP tools")
         return []
 
     from langchain_mcp_adapters.client import MultiServerMCPClient
 
     connection: dict[str, Any] = {"url": cfg.mcp_url, "transport": "streamable_http"}
-    if cfg.mcp_api_key:
+    if cfg.mcp_auth == "apikey":
         connection["headers"] = {cfg.mcp_api_key_header: cfg.mcp_api_key}
+    elif cfg.mcp_auth == "oauth":
+        if not cfg.agentid_ready:
+            # AgentID provisioning can land after the first deploy; tool
+            # discovery is retried on the next /chat.
+            log.warning("MCP_AUTH=oauth but AMP_AGENTID_* not injected yet; no MCP tools")
+            return []
+        from agent_identity import AgentIdentityAuth
+
+        connection["auth"] = AgentIdentityAuth(cfg, resource=cfg.mcp_url)
     client = MultiServerMCPClient({"insurance": connection})
     return list(await client.get_tools())
 

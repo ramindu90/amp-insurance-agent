@@ -6,6 +6,9 @@ langgraph>=0.5.0
 # into LangChain tools.
 langchain-mcp-adapters>=0.1.0
 
+# AgentID token minting (agent_identity.py); also pulled in by openai/mcp.
+httpx>=0.27
+
 fastapi==0.139.0
 uvicorn[standard]==0.47.0
 pydantic==2.13.4

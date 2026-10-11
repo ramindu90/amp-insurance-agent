@@ -29,6 +29,7 @@ copied into its own Devant integration
 
 | File | Purpose |
 |---|---|
+| `agent_identity.py` | AgentID OAuth: mints/caches the Bearer token for an OAuth-secured MCP proxy |
 | `app.py` | FastAPI, AMP Chat Agent contract: `POST /chat {message, session_id, context}` → `{response, session_id}`; `GET /health` |
 | `agent.py` | LLM client (AMP proxy via `API-Key` header, or direct OpenAI) + MCP tool discovery (`langchain-mcp-adapters`) |
 | `config.py` | Env vars (below) |
@@ -49,6 +50,15 @@ depends on where you attached it — create form: `<AGENT_NAME>_1_URL` (LLM),
 discovers them: a `*_URL` ending in `/mcp` is the MCP proxy (API key optional —
 absent when the proxy is unsecured), any other `*_URL` with a sibling
 `*_API_KEY` is the LLM proxy. The explicit names above override discovery.
+
+**MCP auth follows the MCP server's Security setting in Agent Manager**
+(`MCP_AUTH=auto`, override with `apikey`/`oauth`/`none`):
+
+| Proxy security | What AMP injects | What the agent sends |
+|---|---|---|
+| API Key | `<PREFIX>_URL` + `<PREFIX>_API_KEY` | `X-API-Key: <key>` |
+| OAuth (AgentID) | `<PREFIX>_URL` + fixed `AMP_AGENTID_CLIENT_ID/_CLIENT_SECRET/_TOKEN_ENDPOINT/_SCOPES` | `Authorization: Bearer <token>` — `client_credentials` token with `resource=<MCP URL>` (RFC 8707), cached and re-minted at 75% of its lifetime (`agent_identity.py`) |
+| None | `<PREFIX>_URL` only | nothing |
 
 The pod starts even with nothing configured (`/health` shows `"llm":"not-configured"`,
 `/chat` returns 503) so the first deploy doesn't crash-loop before you attach
