@@ -8,7 +8,7 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.prebuilt import create_react_agent
+from langgraph.prebuilt import ToolNode, create_react_agent
 
 from config import Config
 
@@ -81,11 +81,29 @@ def build_llm(cfg: Config) -> ChatOpenAI:
     return ChatOpenAI(model=cfg.model, temperature=0, api_key=cfg.openai_api_key)
 
 
+def root_cause(exc: BaseException) -> str:
+    """MCP client errors arrive wrapped in anyio ExceptionGroups ("unhandled
+    errors in a TaskGroup"); surface the innermost one, e.g. the gateway's
+    HTTP 401/403 for a tool the agent's AgentID scopes don't cover."""
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _tool_error(exc: Exception) -> str:
+    # Returned to the model as the tool result, so a failed MCP call (e.g. a
+    # 403 from the gateway) never aborts the turn or leaves an AIMessage with
+    # an unanswered tool_call in the session history.
+    reason = root_cause(exc)
+    log.warning("tool call failed: %s", reason)
+    return f"Tool call failed: {reason}. Tell the user this action could not be completed and why."
+
+
 def build_agent(cfg: Config, tools: list[Any]) -> Any:
     # Conversation memory keyed on the chat session_id (thread_id).
     return create_react_agent(
         model=build_llm(cfg),
-        tools=tools,
+        tools=ToolNode(tools, handle_tool_errors=_tool_error) if tools else [],
         prompt=SYSTEM_PROMPT,
         checkpointer=InMemorySaver(),
     )

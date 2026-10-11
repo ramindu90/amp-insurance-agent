@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
-from agent import build_agent, load_mcp_tools
+from agent import build_agent, load_mcp_tools, root_cause
 
 # Present when Agent Manager runs the agent with auto-instrumentation; absent
 # in a plain local run (same pattern as AMP's samples/crewai-agent).
@@ -37,14 +37,6 @@ _mcp_error: str = ""
 _lock = asyncio.Lock()
 
 
-def _root_cause(exc: BaseException) -> str:
-    """MCP client errors arrive wrapped in anyio ExceptionGroups; surface the
-    innermost one (e.g. the HTTP 401/404 from the gateway)."""
-    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
-        exc = exc.exceptions[0]
-    return f"{type(exc).__name__}: {exc}"
-
-
 async def get_agent() -> Any:
     global _agent, _tool_names, _mcp_error
     async with _lock:
@@ -54,7 +46,7 @@ async def get_agent() -> Any:
         try:
             tools = await load_mcp_tools(CONFIG)
         except Exception as exc:  # noqa: BLE001
-            _mcp_error = _root_cause(exc)
+            _mcp_error = root_cause(exc)
             log.exception("MCP tool discovery failed (%s): %s", CONFIG.mcp_url, _mcp_error)
             tools = []
         _tool_names = [t.name for t in tools]
@@ -132,7 +124,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("agent invocation failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        # A turn that dies mid-way can leave an unanswered tool_call in the
+        # checkpoint, which makes every later turn of this session fail with
+        # INVALID_CHAT_HISTORY. Drop the session so the next message works.
+        agent.checkpointer.delete_thread(session_id)
+        raise HTTPException(status_code=500, detail=root_cause(exc)) from exc
 
     final: Any = next(
         (m.content for m in reversed(result.get("messages", [])) if isinstance(m, AIMessage)),
